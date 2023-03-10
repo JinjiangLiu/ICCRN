@@ -101,9 +101,9 @@ class NET(nn.Module):
         return y
 
     def forward(self, x):
-        # x:[batch, channel, frequency, time]
+        # x: [batch, 1, time]
         X0 = self.stft(x)
-
+        # X0:[batch, channel, frequency, frame]
         e0 = self.in_ch_lstm(X0)
         e0 = self.in_conv(torch.cat([e0,X0], 1))
         e1 = self.cfb_e1(e0)
@@ -124,7 +124,7 @@ class NET(nn.Module):
         Y  = self.out_conv(torch.cat([d0, d1],dim=1))      
 
         y = self.istft(Y, t=x.shape[-1])
-
+        # y: [batch, 1, time]
         return y 
 
 
