@@ -2,7 +2,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.fft
 import torch
-
+from einops import rearrange
 
 
 class CFB(nn.Module):
@@ -91,7 +91,7 @@ class NET(nn.Module):
 
     def istft(self, Y, t):
         b,c,F,T=Y.shape
-        m_out = int(Y.shape[1]//2)
+        m_out = int(c//2)
         Y_r = Y[:,:m_out]
         Y_i = Y[:,m_out:]
         Y = torch.stack([Y_r, Y_i], dim=-1)
@@ -101,9 +101,9 @@ class NET(nn.Module):
         return y
 
     def forward(self, x):
-        # x: [batch, 1, time]
+        # x:[batch, channel, frequency, time]
         X0 = self.stft(x)
-        # X0:[batch, channel, frequency, frame]
+
         e0 = self.in_ch_lstm(X0)
         e0 = self.in_conv(torch.cat([e0,X0], 1))
         e1 = self.cfb_e1(e0)
@@ -124,7 +124,7 @@ class NET(nn.Module):
         Y  = self.out_conv(torch.cat([d0, d1],dim=1))      
 
         y = self.istft(Y, t=x.shape[-1])
-        # y: [batch, 1, time]
+
         return y 
 
 
@@ -133,16 +133,16 @@ class CH_LSTM_T(nn.Module):
         super().__init__()
         self.lstm2 = nn.LSTM(in_ch, feat_ch, num_layers=num_layers, batch_first=True, bidirectional=bi)
         self.bi = 1 if bi==False else 2
-        self.linear_lstm_out2 = nn.Linear(self.bi*feat_ch,out_ch)
+        self.linear = nn.Linear(self.bi*feat_ch,out_ch)
         self.out_ch = out_ch
 
     def forward(self, x):
         self.lstm2.flatten_parameters()
-        shape_in2 = x.shape
-        x  = x.permute(0,2,3,1).reshape(-1, shape_in2[3], shape_in2[1]) 
+        b,c,f,t = x.shape
+        x  = rearrange(x, 'b c f t -> (b f) t c')
         x,_ = self.lstm2(x.float())
-        x = self.linear_lstm_out2(x)
-        x = x.reshape(shape_in2[0],shape_in2[2],shape_in2[3],self.out_ch).permute(0,3,1,2)
+        x = self.linear(x)
+        x = rearrange(x, '(b f) t c -> b c f t', b=b, f=f, t=t)
         return x
 
 class CH_LSTM_F(nn.Module):
@@ -155,10 +155,10 @@ class CH_LSTM_F(nn.Module):
     def forward(self, x):
         self.lstm2.flatten_parameters()
         b,c,f,t = x.shape
-        x = x.permute(0,3,2,1).reshape(-1, f, c) 
+        x = rearrange(x, 'b c f t -> (b t) f c')   
         x,_  = self.lstm2(x.float())
         x = self.linear(x)
-        x = x.reshape(b,t,f,self.out_ch).permute(0,3,2,1)
+        x = rearrange(x, '(b t) f c -> b c f t', b=b, f=f, t=t)
         return x
 
 
